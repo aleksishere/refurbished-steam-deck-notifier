@@ -16,7 +16,6 @@
 
 from time import gmtime, strftime
 import requests
-from discord_webhook import DiscordWebhook
 import os
 import csv
 from datetime import datetime
@@ -25,8 +24,8 @@ import json
 
 
 # Default values
-DEFAULT_COUNTRY_CODE = 'DE'
-DEFAULT_WEBHOOK_URL = "https://discord.com/api/webhooks/some_webhook"
+DEFAULT_COUNTRY_CODE = 'PL'
+DEFAULT_WEBHOOK_URL = "http://raspberrypi.local:8123/api/webhook/steamdeck-webhook" # Default webhook URL for notifications
 
 def get_daily_csv_path(csv_dir: str, country_code: str) -> str:
     """Generate the CSV file path for today's date and country"""
@@ -71,9 +70,6 @@ def superduperscraper(version, urlSuffix, isOLED: bool, csv_dir: str, country_co
     # Build Steam API URL with country code
     url = f'https://api.steampowered.com/IPhysicalGoodsService/CheckInventoryAvailableByPackage/v1?origin=https:%2F%2Fstore.steampowered.com&country_code={country_code}&packageid='
     
-    # Create Discord webhook
-    webhook = DiscordWebhook(url=webhook_url, content="error")
-    
     roleIdWithCountry = role_ids.get(urlSuffix, "") if role_ids else ""
     
     oldvalue = ""
@@ -108,14 +104,25 @@ def superduperscraper(version, urlSuffix, isOLED: bool, csv_dir: str, country_co
         # Send Discord notification only on status change
         if status_changed:
             display_type = "OLED" if isOLED else "LCD"
+            message_content = ''
+
             if availability == "True":
-                # Include role ping only if role ID exists
-                role_ping = f" <@&{roleIdWithCountry}>" if roleIdWithCountry else ""
-                webhook.content = f"refurbished {version}GB {display_type} steam deck available{role_ping}"
+                message_content = f"🚨 Steam Deck {version}GB {display_type} is now available! 🚨"
             else:
-                webhook.content = f"refurbished {version}GB {display_type} steam deck not available"
-            webhook.execute()
+                message_content = f"ℹ️ Steam Deck {version}GB {display_type} is now out of stock. ℹ️"
             
+            payload = {
+                "message": message_content,
+                "verison": version,
+                "display_type": display_type,
+                "available": availability == "True"
+            }
+            print(f"Sending notification: {message_content}")
+            try:
+                requests.post(webhook_url, json=payload, timeout=10)
+            except requests.RequestException as e:
+                print(f"Error sending notification: {e}")
+
     except requests.RequestException as e:
         print(f"Error fetching data for {version}GB: {e}")
         log_availability_data(version, urlSuffix, False, isOLED, csv_dir, country_code)
@@ -141,7 +148,7 @@ def main():
     parser.add_argument('--country-code', default=DEFAULT_COUNTRY_CODE, 
                        help=f'Country code for Steam API (default: {DEFAULT_COUNTRY_CODE})')
     parser.add_argument('--webhook-url', default=DEFAULT_WEBHOOK_URL,
-                       help='Discord webhook URL for notifications')
+                       help='Webhook URL for notifications')
     parser.add_argument('--role-mapping', help='JSON file containing package_id to role_id mapping')
     parser.add_argument('--csv-log', help='Deprecated: This option is no longer supported (last supported version v2.0.0).')
     
